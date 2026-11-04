@@ -1,3 +1,4 @@
+
 export type EventType =
   | "Cleanup"
   | "Plantation"
@@ -13,6 +14,11 @@ export interface EventParticipant {
   joinedAt: string;
 }
 
+export interface EventSchedule {
+  time: string;
+  activity: string;
+}
+
 export interface Event {
   _id?: string;
 
@@ -21,10 +27,17 @@ export interface Event {
   eventType: EventType;
 
   thumbnail: string;
-
   location: string;
-
   eventDate: string;
+
+  duration: string;
+  capacity: number;
+
+  requirements: string[];
+  whatToBring: string[];
+  benefits: string[];
+
+  schedule: EventSchedule[];
 
   creator: {
     name: string;

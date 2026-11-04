@@ -2,7 +2,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-
+import { syncDemoEvents } from "./utils/syncDemoEvents";
 import { connectDB } from "./config/db";
 import eventRoutes from "./routes/eventRoutes";
 import aboutRoutes from "./routes/aboutRoutes";
@@ -22,6 +22,7 @@ app.use(
 );
 
 app.use(express.json());
+
 app.get("/api/test", (_req, res) => {
   console.log("API TEST REQUEST RECEIVED");
 
@@ -43,11 +44,21 @@ app.get("/", (_req, res) => {
 });
 
 const startServer = async () => {
-  await connectDB();
+  try {
+    // Connect to MongoDB first
+    await connectDB();
 
-  app.listen(PORT, () => {
-    console.log(`Shobai server is running on port ${PORT}`);
-  });
+    // Synchronize demo events with MongoDB
+    await syncDemoEvents();
+
+    // Start Express after synchronization completes
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
 };
 
 startServer();

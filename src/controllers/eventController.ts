@@ -3,6 +3,8 @@ import { ObjectId } from "mongodb";
 import { connectDB } from "../config/db";
 import { AuthRequest } from "../middleware/verifyJWT";
 import type { EventParticipant } from "../types/event";
+import type { Event } from "../types/event";
+import { demoEvents } from "../data/demoEvents";
 
 type StoredEvent = {
   _id: ObjectId;
@@ -13,8 +15,9 @@ type StoredEvent = {
   eventDate?: string;
 };
 
+
 export const getUpcomingEvents = async (
-  _req: Request,
+  req: Request,
   res: Response
 ) => {
   try {
@@ -23,32 +26,27 @@ export const getUpcomingEvents = async (
     const events = await db
       .collection("events")
       .find({
-        eventDate: {
-          $gt: new Date().toISOString(),
-        },
+        eventDate: { $gt: new Date().toISOString() },
       })
-      .sort({
-        eventDate: 1,
-      })
-      .limit(50)
+      .sort({ eventDate: 1 })
       .toArray();
 
-    const formattedEvents = events.map((event) => ({
+    const formattedEvents: Event[] = events.map((event) => ({
       ...event,
       _id: event._id.toString(),
-    }));
+    })) as Event[];
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: formattedEvents.length,
       data: formattedEvents,
     });
   } catch (error) {
-    console.error("Failed to get upcoming events:", error);
+    console.error("Get upcoming events error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Unable to load upcoming events.",
+      message: "Failed to fetch events",
     });
   }
 };
@@ -144,19 +142,21 @@ export const createEvent = async (
 };
 
 
+
+
 export const getEventById = async (
   req: Request,
-  res: Response,
+  res: Response
 ) => {
   try {
-    const { id } = req.params;
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
 
-    if (typeof id !== "string" || !ObjectId.isValid(id)) {
-      res.status(400).json({
+    if (!id || typeof id !== "string" || !ObjectId.isValid(id)) {
+      return res.status(400).json({
         success: false,
-        message: "Invalid event ID",
+        message: "Invalid event ID.",
       });
-      return;
     }
 
     const db = await connectDB();
@@ -166,29 +166,37 @@ export const getEventById = async (
     });
 
     if (!event) {
-      res.status(404).json({
+      return res.status(404).json({
         success: false,
-        message: "Event not found",
+        message: "Event not found.",
       });
-      return;
     }
 
-    res.status(200).json({
+    const participants = event.participants || [];
+
+    return res.status(200).json({
       success: true,
       data: {
         ...event,
         _id: event._id.toString(),
+        participants,
+        participantCount: participants.length,
+        requirements: event.requirements || [],
+        whatToBring: event.whatToBring || [],
+        benefits: event.benefits || [],
+        schedule: event.schedule || [],
       },
     });
   } catch (error) {
-    console.error("Get event details error:", error);
+    console.error("Get event by ID error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to fetch event details",
+      message: "Failed to fetch event details.",
     });
   }
 };
+
 
 export const getMyEvents = async (
   req: AuthRequest,
