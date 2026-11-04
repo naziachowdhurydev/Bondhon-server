@@ -385,7 +385,7 @@ export const getEventDetails = async (
     if (!event) {
       res.status(404).json({
         success: false,
-        message: "Event not found",
+        message: "Event not found in database",
       });
       return;
     }
@@ -398,10 +398,15 @@ export const getEventDetails = async (
       thumbnail: event.thumbnail,
       location: event.location,
       eventDate: event.eventDate,
-      creator: event.creator,
+      creator: event.creator || {
+        name: "Community Organizer",
+        email: "",
+        userId: "",
+      },
       participants: event.participants || [],
       participantCount: event.participants?.length || 0,
       createdAt: event.createdAt,
+      updatedAt: event.updatedAt,
     };
 
     res.status(200).json({
@@ -413,7 +418,7 @@ export const getEventDetails = async (
 
     res.status(500).json({
       success: false,
-      message: "Failed to get event details",
+      message: "Server error while fetching event details",
     });
   }
 };

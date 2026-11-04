@@ -1,9 +1,11 @@
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
 import { connectDB } from "./config/db";
 import eventRoutes from "./routes/eventRoutes";
+import aboutRoutes from "./routes/aboutRoutes";
 
 dotenv.config();
 
@@ -19,7 +21,16 @@ app.use(
 );
 
 app.use(express.json());
+app.get("/api/test", (_req, res) => {
+  console.log("API TEST REQUEST RECEIVED");
 
+  res.status(200).json({
+    success: true,
+    message: "Test route is working!",
+  });
+});
+
+app.use("/api/about", aboutRoutes);
 app.use("/api/events", eventRoutes);
 
 app.get("/", (_req, res) => {
