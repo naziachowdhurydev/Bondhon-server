@@ -1,51 +1,68 @@
-// import type { NextFunction, Request, Response } from "express";
-// import { verifyToken, type AuthPayload } from "../utils/token";
+import { Request, Response, NextFunction } from "express";
+import {
+  createRemoteJWKSet,
+  jwtVerify,
+} from "jose";
 
-// declare global {
-//   namespace Express {
-//     interface Request {
-//       user?: AuthPayload;
-//     }
-//   }
-// }
+const authServerURL =
+  process.env.AUTH_SERVER_URL || "http://localhost:3000";
 
-// function getToken(req: Request): string | null {
-//   const cookieToken: unknown = req.cookies?.token;
-//   if (typeof cookieToken === "string" && cookieToken.length > 0) {
-//     return cookieToken;
-//   }
+const JWKS = createRemoteJWKSet(
+  new URL(`${authServerURL}/api/auth/jwks`)
+);
 
-//   const authHeader = req.headers.authorization;
-//   if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
-//     const token = authHeader.slice("Bearer ".length).trim();
-//     return token.length > 0 ? token : null;
-//   }
+export interface AuthRequest extends Request {
+  user?: {
+    userId: string;
+    email: string;
+    name: string;
+  };
+}
 
-//   return null;
-// }
+export const verifyJWT = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const authorization = req.headers.authorization;
 
-// /**
-//  * Accepts a JWT from the `token` cookie or the `Authorization: Bearer <token>`
-//  * header and attaches its payload to `req.user`.
-//  */
-// export function verifyJWT(
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ): void {
-//   const token = getToken(req);
+    if (!authorization?.startsWith("Bearer ")) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
+    }
 
-//   if (!token) {
-//     res.status(401).json({ message: "Authentication required" });
-//     return;
-//   }
+    const token = authorization.split(" ")[1];
 
-//   try {
-//     req.user = verifyToken(token);
-//     next();
-//   } catch {
-//     res.status(401).json({ message: "Invalid or expired token" });
-//   }
-// }
+    const { payload } = await jwtVerify(token, JWKS, {
+      issuer: authServerURL,
+      audience: authServerURL,
+    });
 
-// export default verifyJWT;
+    if (!payload.sub || !payload.email) {
+      res.status(401).json({
+        success: false,
+        message: "Invalid authentication token",
+      });
+      return;
+    }
+
+    req.user = {
+      userId: payload.sub,
+      email: String(payload.email),
+      name: String(payload.name ?? ""),
+    };
+
+    next();
+  } catch (error) {
+    console.error("JWT verification failed:", error);
+
+    res.status(401).json({
+      success: false,
+      message: "Invalid or expired token",
+    });
+  }
+};

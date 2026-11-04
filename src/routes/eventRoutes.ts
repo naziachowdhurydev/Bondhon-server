@@ -1,25 +1,17 @@
-// import { Router } from "express";
-// import {
-//   createEvent,
-//   deleteEvent,
-//   getAllEvents,
-//   getEventById,
-//   getMyEvents,
-//   joinEvent,
-//   updateEvent,
-// } from "../controllers/eventController";
-// import { verifyJWT } from "../middleware/verifyJWT";
+import { Router } from "express";
 
-// const router = Router();
+import {
+  getUpcomingEvents,
+  createEvent,
+  getEventById,
+} from "../controllers/eventController";
 
-// router.get("/", getAllEvents);
-// router.get("/mine", verifyJWT, getMyEvents);
-// router.get("/:id", getEventById);
+const router = Router();
 
-// router.post("/", verifyJWT, createEvent);
-// router.patch("/:id", verifyJWT, updateEvent);
-// router.delete("/:id", verifyJWT, deleteEvent);
+router.get("/", getUpcomingEvents);
 
-// router.post("/:id/join", verifyJWT, joinEvent);
+router.post("/", createEvent);
 
-// export default router;
+router.get("/:id", getEventById);
+
+export default router;
