@@ -1,10 +1,15 @@
-// import { Router } from "express";
-// import { getJoinedEvents, leaveEvent } from "../controllers/eventController";
-// import { verifyJWT } from "../middleware/verifyJWT";
+import { Router } from "express";
+import {
+  getJoinedEvents,
+  joinEvent,
+  leaveEvent,
+} from "../controllers/eventController";
+import { verifyJWT } from "../middleware/verifyJWT";
 
-// const router = Router();
+const router = Router();
 
-// router.get("/", verifyJWT, getJoinedEvents);
-// router.delete("/:eventId", verifyJWT, leaveEvent);
+router.get("/", verifyJWT, getJoinedEvents);
+router.post("/:eventId", verifyJWT, joinEvent);
+router.delete("/:eventId", verifyJWT, leaveEvent);
 
-// export default router;
+export default router;

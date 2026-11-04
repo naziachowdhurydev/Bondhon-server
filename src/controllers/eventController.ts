@@ -2,6 +2,16 @@ import { Request, Response } from "express";
 import { ObjectId } from "mongodb";
 import { connectDB } from "../config/db";
 import { AuthRequest } from "../middleware/verifyJWT";
+import type { EventParticipant } from "../types/event";
+
+type StoredEvent = {
+  _id: ObjectId;
+  participants: EventParticipant[];
+  creator?: {
+    userId?: string;
+  };
+  eventDate?: string;
+};
 
 export const getUpcomingEvents = async (
   _req: Request,
@@ -419,6 +429,287 @@ export const getEventDetails = async (
     res.status(500).json({
       success: false,
       message: "Server error while fetching event details",
+    });
+  }
+};
+
+export const joinEvent = async (
+  req: AuthRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in to join this event.",
+      });
+    }
+
+    const { eventId } = req.params;
+
+    if (typeof eventId !== "string" || !ObjectId.isValid(eventId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    const db = await connectDB();
+    const events = db.collection<StoredEvent>("events");
+    const id = new ObjectId(eventId);
+    const event = await events.findOne({ _id: id });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    if (event.creator?.userId === req.user.userId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot join an event you created.",
+      });
+    }
+
+    const existingParticipants = Array.isArray(event.participants)
+      ? event.participants
+      : [];
+    const user = req.user;
+    const alreadyJoined = existingParticipants.some(
+      (participant) =>
+        participant.userId === user.userId ||
+        participant.email === user.email,
+    );
+
+    if (alreadyJoined) {
+      return res.status(200).json({
+        success: true,
+        alreadyJoined: true,
+        message: "You have already joined this event.",
+        data: {
+          ...event,
+          _id: event._id.toString(),
+          participants: existingParticipants,
+          participantCount: existingParticipants.length,
+        },
+      });
+    }
+
+    const participant = {
+      userId: req.user.userId,
+      name: req.user.name,
+      email: req.user.email,
+      joinedAt: new Date().toISOString(),
+    };
+
+    const result = await events.updateOne(
+      {
+        _id: id,
+        "participants.userId": { $ne: req.user.userId },
+        "participants.email": { $ne: req.user.email },
+      },
+      {
+        $push: { participants: participant },
+      },
+    );
+
+    if (result.modifiedCount === 0) {
+      const currentEvent = await events.findOne({ _id: id });
+
+      if (!currentEvent) {
+        return res.status(404).json({
+          success: false,
+          message: "Event not found.",
+        });
+      }
+
+      const currentParticipants = Array.isArray(currentEvent.participants)
+        ? currentEvent.participants
+        : [];
+      const joinedDuringRequest = currentParticipants.some(
+        (currentParticipant) =>
+          currentParticipant.userId === user.userId ||
+          currentParticipant.email === user.email,
+      );
+
+      if (!joinedDuringRequest) {
+        return res.status(409).json({
+          success: false,
+          message: "Unable to join this event. Please try again.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        alreadyJoined: true,
+        message: "You have already joined this event.",
+        data: {
+          ...currentEvent,
+          _id: currentEvent._id.toString(),
+          participants: currentParticipants,
+          participantCount: currentParticipants.length,
+        },
+      });
+    }
+
+    const updatedEvent = await events.findOne({ _id: id });
+
+    if (!updatedEvent) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    const updatedParticipants = Array.isArray(updatedEvent.participants)
+      ? updatedEvent.participants
+      : [];
+
+    return res.status(200).json({
+      success: true,
+      alreadyJoined: false,
+      message: "You joined this event.",
+      data: {
+        ...updatedEvent,
+        _id: updatedEvent._id.toString(),
+        participants: updatedParticipants,
+        participantCount: updatedParticipants.length,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to join event:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to join this event.",
+    });
+  }
+};
+
+export const getJoinedEvents = async (
+  req: AuthRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in to view your joined events.",
+      });
+    }
+
+    const db = await connectDB();
+    const events = await db
+      .collection<StoredEvent>("events")
+      .find({
+        $or: [
+          { "participants.userId": req.user.userId },
+          { "participants.email": req.user.email },
+        ],
+      })
+      .sort({ eventDate: 1 })
+      .toArray();
+
+    const joinedEvents = events.map((event) => {
+      const participants = Array.isArray(event.participants)
+        ? event.participants
+        : [];
+
+      return {
+        ...event,
+        _id: event._id.toString(),
+        participants,
+        participantCount: participants.length,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: joinedEvents,
+    });
+  } catch (error) {
+    console.error("Failed to get joined events:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load joined events.",
+    });
+  }
+};
+
+export const leaveEvent = async (
+  req: AuthRequest,
+  res: Response,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in.",
+      });
+    }
+
+    const { eventId } = req.params;
+
+    if (typeof eventId !== "string" || !ObjectId.isValid(eventId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    const db = await connectDB();
+    const id = new ObjectId(eventId);
+    const events = db.collection<StoredEvent>("events");
+    const event = await events.findOne({ _id: id });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    await events.updateOne(
+      { _id: id },
+      { $pull: { participants: { userId: req.user.userId } } },
+    );
+    await events.updateOne(
+      { _id: id },
+      { $pull: { participants: { email: req.user.email } } },
+    );
+
+    const updatedEvent = await events.findOne({ _id: id });
+
+    if (!updatedEvent) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    const updatedParticipants = Array.isArray(updatedEvent.participants)
+      ? updatedEvent.participants
+      : [];
+
+    return res.status(200).json({
+      success: true,
+      message: "You left this event.",
+      data: {
+        ...updatedEvent,
+        _id: updatedEvent._id.toString(),
+        participants: updatedParticipants,
+        participantCount: updatedParticipants.length,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to leave event:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to leave this event.",
     });
   }
 };

@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { connectDB } from "./config/db";
 import eventRoutes from "./routes/eventRoutes";
 import aboutRoutes from "./routes/aboutRoutes";
+import joinedEventRoutes from "./routes/joinedEventRoutes";
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ app.get("/api/test", (_req, res) => {
 
 app.use("/api/about", aboutRoutes);
 app.use("/api/events", eventRoutes);
+app.use("/api/joined-events", joinedEventRoutes);
 
 app.get("/", (_req, res) => {
   res.json({

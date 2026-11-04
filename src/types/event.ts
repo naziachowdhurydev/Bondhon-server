@@ -6,6 +6,13 @@ export type EventType =
   | "Food Distribution"
   | "Health Camp";
 
+export interface EventParticipant {
+  userId?: string;
+  name: string;
+  email: string;
+  joinedAt: string;
+}
+
 export interface Event {
   _id?: string;
 
@@ -24,11 +31,7 @@ export interface Event {
     email: string;
   };
 
-  participants: {
-    name: string;
-    email: string;
-    joinedAt: string;
-  }[];
+  participants: EventParticipant[];
 
   createdAt: string;
   updatedAt: string;
