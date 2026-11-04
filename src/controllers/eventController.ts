@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { ObjectId } from "mongodb";
 import { connectDB } from "../config/db";
+import { AuthRequest } from "../middleware/verifyJWT";
 
 export const getUpcomingEvents = async (
   _req: Request,
@@ -42,11 +43,20 @@ export const getUpcomingEvents = async (
   }
 };
 
+
+
 export const createEvent = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in to create an event.",
+      });
+    }
+
     const {
       title,
       description,
@@ -54,18 +64,197 @@ export const createEvent = async (
       thumbnail,
       location,
       eventDate,
-      creator,
     } = req.body;
 
     if (
-      !title ||
-      !description ||
+      !title?.trim() ||
+      !description?.trim() ||
       !eventType ||
-      !thumbnail ||
-      !location ||
-      !eventDate ||
-      !creator?.name ||
-      !creator?.email
+      !location?.trim() ||
+      !eventDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required event information must be provided.",
+      });
+    }
+
+    const selectedDate = new Date(eventDate);
+
+    if (
+      Number.isNaN(selectedDate.getTime()) ||
+      selectedDate <= new Date()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid future event date.",
+      });
+    }
+
+    const db = await connectDB();
+
+    const newEvent = {
+      title: title.trim(),
+      description: description.trim(),
+      eventType,
+      thumbnail: thumbnail?.trim() || "",
+      location: location.trim(),
+      eventDate: selectedDate.toISOString(),
+
+      creator: {
+        userId: req.user.userId,
+        name: req.user.name,
+        email: req.user.email,
+      },
+
+      participants: [],
+
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const result = await db.collection("events").insertOne(newEvent);
+
+    return res.status(201).json({
+      success: true,
+      message: "Event created successfully.",
+      data: {
+        ...newEvent,
+        _id: result.insertedId.toString(),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to create event:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to create event.",
+    });
+  }
+};
+
+
+export const getEventById = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { id } = req.params;
+
+    if (typeof id !== "string" || !ObjectId.isValid(id)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid event ID",
+      });
+      return;
+    }
+
+    const db = await connectDB();
+
+    const event = await db.collection("events").findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!event) {
+      res.status(404).json({
+        success: false,
+        message: "Event not found",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...event,
+        _id: event._id.toString(),
+      },
+    });
+  } catch (error) {
+    console.error("Get event details error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch event details",
+    });
+  }
+};
+
+export const getMyEvents = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in.",
+      });
+    }
+
+    const db = await connectDB();
+
+    const events = await db
+      .collection("events")
+      .find({ "creator.userId": req.user.userId })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const formattedEvents = events.map((event) => ({
+      ...event,
+      _id: event._id.toString(),
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: formattedEvents,
+    });
+  } catch (error) {
+    console.error("Failed to get your events:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load your events.",
+    });
+  }
+};
+
+export const updateEvent = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in.",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (typeof id !== "string" || !ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    const {
+      title,
+      description,
+      eventType,
+      thumbnail,
+      location,
+      eventDate,
+    } = req.body;
+
+    if (
+      !title?.trim() ||
+      !description?.trim() ||
+      !eventType ||
+      !location?.trim() ||
+      !eventDate
     ) {
       return res.status(400).json({
         success: false,
@@ -78,66 +267,64 @@ export const createEvent = async (
     if (Number.isNaN(selectedDate.getTime())) {
       return res.status(400).json({
         success: false,
-        message: "Please provide a valid event date.",
-      });
-    }
-
-    if (selectedDate <= new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: "Event date must be in the future.",
+        message: "Invalid event date.",
       });
     }
 
     const db = await connectDB();
 
-    const newEvent = {
-      title,
-      description,
-      eventType,
-      thumbnail,
-      location,
-      eventDate: selectedDate.toISOString(),
-
-      creator: {
-        name: creator.name,
-        email: creator.email,
+    const result = await db.collection("events").updateOne(
+      {
+        _id: new ObjectId(id),
+        "creator.userId": req.user.userId,
       },
+      {
+        $set: {
+          title: title.trim(),
+          description: description.trim(),
+          eventType,
+          thumbnail: thumbnail?.trim() || "",
+          location: location.trim(),
+          eventDate: selectedDate.toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }
+    );
 
-      participants: [],
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found or you are not its creator.",
+      });
+    }
 
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const result = await db
-      .collection("events")
-      .insertOne(newEvent);
-
-    res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: "Event created successfully.",
-      data: {
-        ...newEvent,
-        _id: result.insertedId.toString(),
-      },
+      message: "Event updated successfully.",
     });
   } catch (error) {
-    console.error("Failed to create event:", error);
+    console.error("Failed to update event:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Unable to create event.",
+      message: "Unable to update event.",
     });
   }
 };
 
-export const getEventById = async (
-  req: Request,
+export const deleteEvent = async (
+  req: AuthRequest,
   res: Response
 ) => {
   try {
-    const id = req.params.id;
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in.",
+      });
+    }
+
+    const { id } = req.params;
 
     if (typeof id !== "string" || !ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -148,30 +335,85 @@ export const getEventById = async (
 
     const db = await connectDB();
 
+    const result = await db.collection("events").deleteOne({
+      _id: new ObjectId(id),
+      "creator.userId": req.user.userId,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found or you are not its creator.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Event deleted successfully.",
+    });
+  } catch (error) {
+    console.error("Failed to delete event:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete event.",
+    });
+  }
+};
+
+export const getEventDetails = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { id } = req.params;
+
+    if (typeof id !== "string" || !ObjectId.isValid(id)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid event ID",
+      });
+      return;
+    }
+
+    const db = await connectDB();
+
     const event = await db.collection("events").findOne({
       _id: new ObjectId(id),
     });
 
     if (!event) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
-        message: "Event not found.",
+        message: "Event not found",
       });
+      return;
     }
+
+    const details = {
+      _id: event._id.toString(),
+      title: event.title,
+      description: event.description,
+      eventType: event.eventType,
+      thumbnail: event.thumbnail,
+      location: event.location,
+      eventDate: event.eventDate,
+      creator: event.creator,
+      participants: event.participants || [],
+      participantCount: event.participants?.length || 0,
+      createdAt: event.createdAt,
+    };
 
     res.status(200).json({
       success: true,
-      data: {
-        ...event,
-        _id: event._id.toString(),
-      },
+      data: details,
     });
   } catch (error) {
-    console.error("Failed to get event:", error);
+    console.error("Get event details error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Unable to load event.",
+      message: "Failed to get event details",
     });
   }
 };
