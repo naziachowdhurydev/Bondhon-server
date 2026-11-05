@@ -16,7 +16,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === "production";
 const configuredClientURL =
-  process.env.CLIENT_URL ?? (isProduction ? undefined : "http://localhost:3000");
+  process.env.CLIENT_URL ?? (isProduction ? undefined : `process.env.CLIENT_URL`);
 
 if (!configuredClientURL) {
   throw new Error("CLIENT_URL is required in production");

@@ -6,7 +6,7 @@ import {
 
 const configuredAuthServerURL =
   process.env.AUTH_SERVER_URL ??
-  (process.env.NODE_ENV === "production" ? undefined : "http://localhost:3000");
+  (process.env.NODE_ENV === "production" ? undefined : `process.env.CLIENT_URL`);
 
 if (!configuredAuthServerURL) {
   throw new Error("AUTH_SERVER_URL is required in production");
