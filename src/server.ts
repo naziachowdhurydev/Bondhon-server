@@ -5,8 +5,10 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
+
 import { syncDemoEvents } from "./utils/syncDemoEvents";
 import { connectDB } from "./config/db";
+
 import eventRoutes from "./routes/eventRoutes";
 import aboutRoutes from "./routes/aboutRoutes";
 import joinedEventRoutes from "./routes/joinedEventRoutes";
@@ -15,6 +17,11 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === "production";
+
+// --------------------------------------
+// CORS CONFIGURATION
+// --------------------------------------
+
 const configuredClientURL = process.env.CLIENT_URL;
 let clientOrigin: string | false = false;
 
@@ -29,7 +36,9 @@ if (configuredClientURL) {
     clientURL.search ||
     clientURL.hash
   ) {
-    throw new Error("CLIENT_URL must be an origin without a path or credentials");
+    throw new Error(
+      "CLIENT_URL must be an origin without a path or credentials"
+    );
   }
 
   if (
@@ -45,7 +54,12 @@ if (configuredClientURL) {
   clientOrigin = clientURL.origin;
 }
 
+// --------------------------------------
+// MIDDLEWARE
+// --------------------------------------
+
 app.use(helmet());
+
 app.use(
   cors({
     origin: clientOrigin,
@@ -66,34 +80,86 @@ app.use(
       success: false,
       message: "Too many requests. Please try again later.",
     },
-  }),
+  })
 );
+
 app.use(express.json({ limit: "32kb" }));
 
-app.get("/api/test", (_req, res) => {
-  console.log("API TEST REQUEST RECEIVED");
+// --------------------------------------
+// HEALTH CHECK ROUTES
+// These do not require MongoDB.
+// --------------------------------------
 
+app.get("/api/test", (_req, res) => {
   res.status(200).json({
     success: true,
     message: "Test route is working!",
   });
 });
 
-app.use("/api/about", aboutRoutes);
-app.use("/api/events", eventRoutes);
-app.use("/api/joined-events", joinedEventRoutes);
-
 app.get("/", (_req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     message: "Shobai server is running!",
   });
 });
 
+// --------------------------------------
+// DATABASE INITIALIZATION
+// --------------------------------------
+
+let initializationPromise: Promise<void> | undefined;
+
+const initializeApp = (): Promise<void> => {
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      await connectDB();
+      await syncDemoEvents();
+
+      console.log("Application initialized successfully");
+    })().catch((error: unknown) => {
+      // Allow a future request to retry initialization.
+      initializationPromise = undefined;
+
+      throw error;
+    });
+  }
+
+  return initializationPromise;
+};
+
+// Initialize the database before handling
+// routes that depend on MongoDB.
+app.use(async (_req, res, next) => {
+  try {
+    await initializeApp();
+    next();
+  } catch (error) {
+    console.error("Application initialization failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Server initialization failed",
+    });
+  }
+});
+
+// --------------------------------------
+// API ROUTES
+// --------------------------------------
+
+app.use("/api/about", aboutRoutes);
+app.use("/api/events", eventRoutes);
+app.use("/api/joined-events", joinedEventRoutes);
+
+// --------------------------------------
+// LOCAL DEVELOPMENT SERVER
+// --------------------------------------
+
 const startServer = async () => {
   try {
-    await connectDB();
-    await syncDemoEvents();
+    await initializeApp();
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
@@ -103,6 +169,8 @@ const startServer = async () => {
   }
 };
 
+// Only start a local HTTP server when running directly.
+// Vercel imports the Express app instead.
 if (require.main === module) {
   startServer();
 }
