@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import { connectDB } from "../config/db";
 import { AuthRequest } from "../middleware/verifyJWT";
 import type { Event, EventParticipant, EventType } from "../types/event";
-import { demoEvents } from "../data/demoEvents";
+
 
 const eventTypes = new Set<EventType>([
   "Cleanup",

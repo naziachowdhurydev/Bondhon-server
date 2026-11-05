@@ -1,7 +1,8 @@
 
+import "./config/env";
+
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { syncDemoEvents } from "./utils/syncDemoEvents";
@@ -9,8 +10,6 @@ import { connectDB } from "./config/db";
 import eventRoutes from "./routes/eventRoutes";
 import aboutRoutes from "./routes/aboutRoutes";
 import joinedEventRoutes from "./routes/joinedEventRoutes";
-
-dotenv.config();
 
 const app = express();
 
