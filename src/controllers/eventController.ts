@@ -519,6 +519,21 @@ export const joinEvent = async (
       ? event.participants
       : [];
     const user = req.user;
+    const requestedImage = req.body?.image;
+    if (
+      requestedImage !== undefined &&
+      requestedImage !== null &&
+      requestedImage !== "" &&
+      (typeof requestedImage !== "string" ||
+        requestedImage.length > 2048 ||
+        !isHttpURL(requestedImage))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Profile image must be a valid HTTP or HTTPS URL.",
+      });
+    }
+
     const alreadyJoined = existingParticipants.some(
       (participant) =>
         participant.userId === user.userId ||
@@ -526,15 +541,51 @@ export const joinEvent = async (
     );
 
     if (alreadyJoined) {
+      await events.updateOne(
+        {
+          _id: id,
+          participants: {
+            $elemMatch: {
+              $or: [
+                { userId: user.userId },
+                { email: user.email },
+              ],
+            },
+          },
+        },
+        {
+          $set: {
+            "participants.$.userId": user.userId,
+            "participants.$.name": user.name,
+            "participants.$.email": user.email,
+            ...(typeof requestedImage === "string" && requestedImage
+              ? { "participants.$.image": requestedImage }
+              : {}),
+          },
+        },
+      );
+      const currentEvent = await events.findOne({ _id: id });
+
+      if (!currentEvent) {
+        return res.status(404).json({
+          success: false,
+          message: "Event not found.",
+        });
+      }
+
+      const currentParticipants = Array.isArray(currentEvent.participants)
+        ? currentEvent.participants
+        : [];
+
       return res.status(200).json({
         success: true,
         alreadyJoined: true,
         message: "You have already joined this event.",
         data: {
-          ...event,
-          _id: event._id.toString(),
-          participants: existingParticipants,
-          participantCount: existingParticipants.length,
+          ...currentEvent,
+          _id: currentEvent._id.toString(),
+          participants: currentParticipants,
+          participantCount: currentParticipants.length,
         },
       });
     }
@@ -543,6 +594,9 @@ export const joinEvent = async (
       userId: req.user.userId,
       name: req.user.name,
       email: req.user.email,
+      ...(typeof requestedImage === "string" && requestedImage
+        ? { image: requestedImage }
+        : {}),
       joinedAt: new Date().toISOString(),
     };
 

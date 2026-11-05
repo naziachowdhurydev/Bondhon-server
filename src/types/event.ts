@@ -11,6 +11,7 @@ export interface EventParticipant {
   userId?: string;
   name: string;
   email: string;
+  image?: string;
   joinedAt: string;
 }
 
