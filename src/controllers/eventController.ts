@@ -2,9 +2,79 @@ import { Request, Response } from "express";
 import { ObjectId } from "mongodb";
 import { connectDB } from "../config/db";
 import { AuthRequest } from "../middleware/verifyJWT";
-import type { EventParticipant } from "../types/event";
-import type { Event } from "../types/event";
+import type { Event, EventParticipant, EventType } from "../types/event";
 import { demoEvents } from "../data/demoEvents";
+
+const eventTypes = new Set<EventType>([
+  "Cleanup",
+  "Plantation",
+  "Donation",
+  "Education",
+  "Food Distribution",
+  "Health Camp",
+]);
+
+const parseEventInput = (body: unknown) => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+
+  const input = body as Record<string, unknown>;
+
+  if (
+    typeof input.title !== "string" ||
+    typeof input.description !== "string" ||
+    typeof input.eventType !== "string" ||
+    !eventTypes.has(input.eventType as EventType) ||
+    typeof input.location !== "string" ||
+    typeof input.eventDate !== "string" ||
+    (input.thumbnail !== undefined &&
+      input.thumbnail !== null &&
+      typeof input.thumbnail !== "string")
+  ) {
+    return null;
+  }
+
+  const title = input.title.trim();
+  const description = input.description.trim();
+  const location = input.location.trim();
+  const thumbnail =
+    typeof input.thumbnail === "string" ? input.thumbnail.trim() : "";
+  const selectedDate = new Date(input.eventDate);
+
+  if (
+    !title ||
+    title.length > 120 ||
+    !description ||
+    description.length > 10000 ||
+    !location ||
+    location.length > 200 ||
+    thumbnail.length > 2048 ||
+    (thumbnail !== "" && !isHttpURL(thumbnail)) ||
+    Number.isNaN(selectedDate.getTime())
+  ) {
+    return null;
+  }
+
+  return {
+    title,
+    description,
+    eventType: input.eventType as EventType,
+    thumbnail,
+    location,
+    eventDate: selectedDate.toISOString(),
+    selectedDate,
+  };
+};
+
+const isHttpURL = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 
 type StoredEvent = {
   _id: ObjectId;
@@ -65,34 +135,16 @@ export const createEvent = async (
       });
     }
 
-    const {
-      title,
-      description,
-      eventType,
-      thumbnail,
-      location,
-      eventDate,
-    } = req.body;
+    const eventInput = parseEventInput(req.body);
 
-    if (
-      !title?.trim() ||
-      !description?.trim() ||
-      !eventType ||
-      !location?.trim() ||
-      !eventDate
-    ) {
+    if (!eventInput) {
       return res.status(400).json({
         success: false,
-        message: "All required event information must be provided.",
+        message: "Please provide valid event information.",
       });
     }
 
-    const selectedDate = new Date(eventDate);
-
-    if (
-      Number.isNaN(selectedDate.getTime()) ||
-      selectedDate <= new Date()
-    ) {
+    if (eventInput.selectedDate <= new Date()) {
       return res.status(400).json({
         success: false,
         message: "Please provide a valid future event date.",
@@ -102,12 +154,12 @@ export const createEvent = async (
     const db = await connectDB();
 
     const newEvent = {
-      title: title.trim(),
-      description: description.trim(),
-      eventType,
-      thumbnail: thumbnail?.trim() || "",
-      location: location.trim(),
-      eventDate: selectedDate.toISOString(),
+      title: eventInput.title,
+      description: eventInput.description,
+      eventType: eventInput.eventType,
+      thumbnail: eventInput.thumbnail,
+      location: eventInput.location,
+      eventDate: eventInput.eventDate,
 
       creator: {
         userId: req.user.userId,
@@ -214,7 +266,12 @@ export const getMyEvents = async (
 
     const events = await db
       .collection("events")
-      .find({ "creator.userId": req.user.userId })
+      .find({
+        $or: [
+          { "creator.userId": req.user.userId },
+          { "creator.email": req.user.email },
+        ],
+      })
       .sort({ createdAt: -1 })
       .toArray();
 
@@ -258,34 +315,12 @@ export const updateEvent = async (
       });
     }
 
-    const {
-      title,
-      description,
-      eventType,
-      thumbnail,
-      location,
-      eventDate,
-    } = req.body;
+    const eventInput = parseEventInput(req.body);
 
-    if (
-      !title?.trim() ||
-      !description?.trim() ||
-      !eventType ||
-      !location?.trim() ||
-      !eventDate
-    ) {
+    if (!eventInput) {
       return res.status(400).json({
         success: false,
-        message: "All required event information must be provided.",
-      });
-    }
-
-    const selectedDate = new Date(eventDate);
-
-    if (Number.isNaN(selectedDate.getTime())) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid event date.",
+        message: "Please provide valid event information.",
       });
     }
 
@@ -294,16 +329,19 @@ export const updateEvent = async (
     const result = await db.collection("events").updateOne(
       {
         _id: new ObjectId(id),
-        "creator.userId": req.user.userId,
+        $or: [
+          { "creator.userId": req.user.userId },
+          { "creator.email": req.user.email },
+        ],
       },
       {
         $set: {
-          title: title.trim(),
-          description: description.trim(),
-          eventType,
-          thumbnail: thumbnail?.trim() || "",
-          location: location.trim(),
-          eventDate: selectedDate.toISOString(),
+          title: eventInput.title,
+          description: eventInput.description,
+          eventType: eventInput.eventType,
+          thumbnail: eventInput.thumbnail,
+          location: eventInput.location,
+          eventDate: eventInput.eventDate,
           updatedAt: new Date().toISOString(),
         },
       }
@@ -355,7 +393,10 @@ export const deleteEvent = async (
 
     const result = await db.collection("events").deleteOne({
       _id: new ObjectId(id),
-      "creator.userId": req.user.userId,
+      $or: [
+        { "creator.userId": req.user.userId },
+        { "creator.email": req.user.email },
+      ],
     });
 
     if (result.deletedCount === 0) {
@@ -471,13 +512,6 @@ export const joinEvent = async (
       return res.status(404).json({
         success: false,
         message: "Event not found.",
-      });
-    }
-
-    if (event.creator?.userId === req.user.userId) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot join an event you created.",
       });
     }
 
