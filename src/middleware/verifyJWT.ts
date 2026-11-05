@@ -5,40 +5,39 @@ import {
 } from "jose";
 
 const configuredAuthServerURL =
-  process.env.AUTH_SERVER_URL ??
-  (process.env.NODE_ENV === "production" ? undefined : `process.env.CLIENT_URL`);
+  process.env.AUTH_SERVER_URL ?? process.env.CLIENT_URL;
+let authServerURL: string | undefined;
+let JWKS: ReturnType<typeof createRemoteJWKSet> | undefined;
 
-if (!configuredAuthServerURL) {
-  throw new Error("AUTH_SERVER_URL is required in production");
+if (configuredAuthServerURL) {
+  const authURL = new URL(configuredAuthServerURL);
+
+  if (
+    !["http:", "https:"].includes(authURL.protocol) ||
+    authURL.username ||
+    authURL.password ||
+    authURL.pathname !== "/" ||
+    authURL.search ||
+    authURL.hash
+  ) {
+    throw new Error("AUTH_SERVER_URL must be an origin without a path or credentials");
+  }
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    authURL.protocol !== "https:" &&
+    !authURL.hostname.endsWith(".localhost") &&
+    authURL.hostname !== "localhost" &&
+    authURL.hostname !== "127.0.0.1"
+  ) {
+    throw new Error("AUTH_SERVER_URL must use HTTPS in production");
+  }
+
+  authServerURL = authURL.origin;
+  JWKS = createRemoteJWKSet(
+    new URL("/api/auth/jwks", authServerURL)
+  );
 }
-
-const authURL = new URL(configuredAuthServerURL);
-
-if (
-  !["http:", "https:"].includes(authURL.protocol) ||
-  authURL.username ||
-  authURL.password ||
-  authURL.pathname !== "/" ||
-  authURL.search ||
-  authURL.hash
-) {
-  throw new Error("AUTH_SERVER_URL must be an origin without a path or credentials");
-}
-
-if (
-  process.env.NODE_ENV === "production" &&
-  authURL.protocol !== "https:" &&
-  !authURL.hostname.endsWith(".localhost") &&
-  authURL.hostname !== "localhost" &&
-  authURL.hostname !== "127.0.0.1"
-) {
-  throw new Error("AUTH_SERVER_URL must use HTTPS in production");
-}
-
-const authServerURL = authURL.origin;
-const JWKS = createRemoteJWKSet(
-  new URL("/api/auth/jwks", authServerURL)
-);
 
 export interface AuthRequest extends Request {
   user?: {
@@ -53,6 +52,14 @@ export const verifyJWT = async (
   res: Response,
   next: NextFunction
 ) => {
+  if (!JWKS || !authServerURL) {
+    res.status(503).json({
+      success: false,
+      message: "Authentication is not configured",
+    });
+    return;
+  }
+
   try {
     const authorization = req.headers.authorization;
     const bearerToken = authorization?.match(/^Bearer ([^\s]+)$/i)?.[1];

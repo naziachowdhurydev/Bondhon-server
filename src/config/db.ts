@@ -44,37 +44,38 @@
 //   db = null;
 // }
 
-import dotenv from "dotenv";
-
-dotenv.config();
-
 import { Db, MongoClient } from "mongodb";
 
-const uri = process.env.MONGODB_URI;
-
-if (!uri) {
-  throw new Error("MONGODB_URI is not defined in .env");
-}
-
-const client = new MongoClient(uri);
-
-let database: Db;
+let database: Db | undefined;
+let connection: Promise<Db> | undefined;
 
 export const connectDB = async (): Promise<Db> => {
-  try {
-    if (database) {
-      return database;
-    }
-
-    await client.connect();
-
-    database = client.db(process.env.DB_NAME || "shobai");
-
-    console.log("MongoDB connected successfully");
-
+  if (database) {
     return database;
-  } catch (error) {
-    console.error("MongoDB connection failed:", error);
-    process.exit(1);
   }
+
+  if (connection) {
+    return connection;
+  }
+
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error("MONGODB_URI is not defined in the environment");
+  }
+
+  const client = new MongoClient(uri);
+  connection = client
+    .connect()
+    .then(() => {
+      database = client.db(process.env.DB_NAME || "shobai");
+      console.log("MongoDB connected successfully");
+      return database;
+    })
+    .catch((error: unknown) => {
+      connection = undefined;
+      console.error("MongoDB connection failed:", error);
+      throw error;
+    });
+
+  return connection;
 };

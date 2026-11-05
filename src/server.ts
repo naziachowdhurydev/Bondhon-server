@@ -15,40 +15,40 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === "production";
-const configuredClientURL =
-  process.env.CLIENT_URL ?? (isProduction ? undefined : `process.env.CLIENT_URL`);
+const configuredClientURL = process.env.CLIENT_URL;
+let clientOrigin: string | false = false;
 
-if (!configuredClientURL) {
-  throw new Error("CLIENT_URL is required in production");
-}
+if (configuredClientURL) {
+  const clientURL = new URL(configuredClientURL);
 
-const clientURL = new URL(configuredClientURL);
+  if (
+    !["http:", "https:"].includes(clientURL.protocol) ||
+    clientURL.username ||
+    clientURL.password ||
+    clientURL.pathname !== "/" ||
+    clientURL.search ||
+    clientURL.hash
+  ) {
+    throw new Error("CLIENT_URL must be an origin without a path or credentials");
+  }
 
-if (
-  !["http:", "https:"].includes(clientURL.protocol) ||
-  clientURL.username ||
-  clientURL.password ||
-  clientURL.pathname !== "/" ||
-  clientURL.search ||
-  clientURL.hash
-) {
-  throw new Error("CLIENT_URL must be an origin without a path or credentials");
-}
+  if (
+    isProduction &&
+    clientURL.protocol !== "https:" &&
+    !clientURL.hostname.endsWith(".localhost") &&
+    clientURL.hostname !== "localhost" &&
+    clientURL.hostname !== "127.0.0.1"
+  ) {
+    throw new Error("CLIENT_URL must use HTTPS in production");
+  }
 
-if (
-  isProduction &&
-  clientURL.protocol !== "https:" &&
-  !clientURL.hostname.endsWith(".localhost") &&
-  clientURL.hostname !== "localhost" &&
-  clientURL.hostname !== "127.0.0.1"
-) {
-  throw new Error("CLIENT_URL must use HTTPS in production");
+  clientOrigin = clientURL.origin;
 }
 
 app.use(helmet());
 app.use(
   cors({
-    origin: clientURL.origin,
+    origin: clientOrigin,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 600,
@@ -92,13 +92,8 @@ app.get("/", (_req, res) => {
 
 const startServer = async () => {
   try {
-    // Connect to MongoDB first
     await connectDB();
-
-    // Synchronize demo events with MongoDB
     await syncDemoEvents();
-
-    // Start Express after synchronization completes
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
@@ -108,4 +103,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+export default app;
